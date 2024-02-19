@@ -5,29 +5,25 @@ use crate::ui::ui;
 
 use app::InputMode;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-    ExecutableCommand,
 };
 use ratatui::{
     backend::Backend,
-    layout::Rect,
-    prelude::{CrosstermBackend, Stylize, Terminal},
-    text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    prelude::{CrosstermBackend, Terminal},
 };
 use std::{
     io::{self, BufRead},
     process::{ChildStdout, Command},
 };
 use std::{
-    io::{stdout, BufReader, Error, ErrorKind},
+    io::{BufReader, Error, ErrorKind},
     process::Stdio,
 };
 
 use tui_input::backend::crossterm::EventHandler;
-use tui_input::Input;
+
 
 // this will take over i/o from the terminal:
 fn main() {
@@ -51,7 +47,7 @@ fn main() {
     };
 
     let mut app = app::App::new(&args.cmd);
-    let res = run_app(&mut terminal, &mut app);
+    let _res = run_app(&mut terminal, &mut app);
 
     let formatted = format!("{:?}", args);
     app.update_logs(&formatted);

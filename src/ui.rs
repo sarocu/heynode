@@ -1,7 +1,6 @@
 use ratatui::{
     prelude::*,
     widgets::{
-        canvas::{Line, *},
         *,
     },
 };
@@ -16,7 +15,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     \/ /_/ \___|\__, |\___(_)____/\___/|_| |_| |_| .__/ \__,_|\__\___|_|
                 |___/                            |_|                       ";
 
-    let chunks = Layout::default()
+    let _chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
