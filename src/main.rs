@@ -14,6 +14,7 @@ use ratatui::{
     prelude::{CrosstermBackend, Terminal},
 };
 use std::{
+    collections::VecDeque,
     io::{self, BufRead},
     process::{ChildStdout, Command},
 };
@@ -23,7 +24,6 @@ use std::{
 };
 
 use tui_input::backend::crossterm::EventHandler;
-
 
 // this will take over i/o from the terminal:
 fn main() {
@@ -47,10 +47,11 @@ fn main() {
     };
 
     let mut app = app::App::new(&args.cmd);
-    let _res = run_app(&mut terminal, &mut app);
-
-    let formatted = format!("{:?}", args);
+    let formatted = format!("running cmd: {:?}...", args.cmd);
     app.update_logs(&formatted);
+    app.update_logs("\n");
+    app.update_logs("stdout: ");
+    let _res = run_app(&mut terminal, &mut app);
 
     disable_raw_mode().expect("raw mode not allowed");
     execute!(
@@ -83,12 +84,24 @@ fn parse_args() -> Result<RunnerArgs, pico_args::Error> {
 // Run a child process and collect logs from STDOUT
 // 1. Get the command from the CLI args
 // 2. Create a new child process using std::process::Command
-// 3. Pipe the output from STDIN
+// 3. Pipe the output from STDOUT
 // 4. Return the process so that logs can be displayed in the app
 fn run_task(cmd: &str) -> Result<BufReader<ChildStdout>, Error> {
-    let stdout = Command::new(cmd)
+    // split the cmd up as a string:
+    let mut run_cmd = cmd.split(" ").collect::<VecDeque<&str>>();
+
+    // script entry, e.g. "npm"
+    let entry = match run_cmd.pop_front() {
+        Some(c) => c,
+        None => "ls",
+    };
+
+    let cmd_args = run_cmd.into_iter().map(|v| v).collect::<Vec<&str>>();
+    let stdout = Command::new(entry)
+        .args(cmd_args)
         .stdout(Stdio::piped())
-        .spawn()?
+        .spawn()
+        .expect("spawn failed, womp womp")
         .stdout
         .ok_or_else(|| Error::new(ErrorKind::Other, "couldnt capture stdout"));
     let reader = match stdout {
@@ -133,20 +146,25 @@ const HELP: &str = "\
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
     // start by running the command in a child process --
     // this returns a BufReader to get output from
-    let reader = match run_task(&app.cmd) {
+    let mut reader = match run_task(&app.cmd) {
         Ok(r) => r,
         Err(_) => panic!("cant run command"),
     };
 
-    for line in reader.lines() {
-        let log = match line {
-            Ok(l) => l,
-            Err(_) => String::from("err1"),
-        };
-        app.update_logs(&log)
-    }
     loop {
         terminal.draw(|f| ui(f, app))?;
+
+        let mut buf = String::new();
+        reader
+            .read_line(&mut buf)
+            .ok()
+            .expect("couldnt read from stdout");
+
+        let logline = format!("{}", buf);
+
+        if !logline.is_empty() {
+            app.update_logs(&logline)
+        }
 
         // exit criteria -- todo update to ctrl+c:
         if event::poll(std::time::Duration::from_millis(10)).expect("could not poll") {

@@ -30,7 +30,8 @@ impl App {
     }
 
     pub fn update_logs(&mut self, log: &str) {
-        self.logs.push_str(log)
+        self.logs.push_str(log);
+        self.logs.push_str("\n")
     }
 
     pub fn print_logs(&self) -> std::io::Result<()> {
