@@ -52,61 +52,9 @@ fn main() {
 
     let mut app = app::App::new(&args.cmd);
     let res = run_app(&mut terminal, &mut app);
-    // constants:
-    let logo = r"                               ___                            _
-      /\  /\___ _   _  ___    / __\___  _ __ ___  _ __  _   _| |_ ___ _ __
-     / /_/ / _ \ | | |/ _ \  / /  / _ \| '_ ` _ \| '_ \| | | | __/ _ \ '__|
-    / __  /  __/ |_| | (_) |/ /__| (_) | | | | | | |_) | |_| | ||  __/ |
-    \/ /_/ \___|\__, |\___(_)____/\___/|_| |_| |_| .__/ \__,_|\__\___|_|
-                |___/                            |_|                       ";
 
     let formatted = format!("{:?}", args);
     app.update_logs(&formatted);
-
-    let mut buf = String::new();
-
-    // primary entrypoint:
-    // loop {
-    //     terminal
-    //         .draw(|frame| {
-    //             let area = frame.size();
-    //             let header = Rect::new(area.x, area.y, area.width, area.height / 6);
-    //             let logs = Rect::new(0, header.height, area.width, area.height - header.height);
-
-    //             let content = Block::default().title("logs").borders(Borders::ALL);
-    //             let some_logs =
-    //                 Paragraph::new(Line::from(app.logs.into_iter().collect::<String>()))
-    //                     .block(content);
-    //             frame.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
-    //             frame.render_widget(some_logs, logs)
-    //         })
-    //         .expect("could not draw");
-
-    //     if event::poll(std::time::Duration::from_millis(10)).expect("could not poll") {
-    //         // dispatch events:
-    //         if let event::Event::Key(key) = event::read().expect("could not read event") {
-    //             match app.input_mode {
-    //                 InputMode::Normal => match key.code {
-    //                     KeyCode::Char('q') => {
-    //                         break;
-    //                     }
-    //                     KeyCode::Char('i') => {
-    //                         app.input_mode = InputMode::Editing;
-    //                     }
-    //                     _ => {}
-    //                 },
-    //                 InputMode::Editing => match key.code {
-    //                     KeyCode::Esc => {
-    //                         app.input_mode = InputMode::Normal;
-    //                     }
-    //                     _ => {
-    //                         app.input.handle_event(&Event::Key(key));
-    //                     }
-    //                 },
-    //             }
-    //         }
-    //     }
-    // }
 
     disable_raw_mode().expect("raw mode not allowed");
     execute!(
