@@ -15,12 +15,15 @@ pub struct App {
     /// logs from the child process
     pub logs: String,
     pub scroll_pos: u16,
-    /// database connections
+    /// process info:
     pub process: String,
+    /// database info:
+    pub db_type: String,
+    pub db_logs: String,
 }
 
 impl App {
-    pub fn new(cmd: &str) -> App {
+    pub fn new(cmd: &str, db: &str) -> App {
         App {
             input: Input::default(),
             input_mode: InputMode::Normal,
@@ -28,6 +31,8 @@ impl App {
             logs: String::new(),
             scroll_pos: 0,
             process: String::from("fetching info..."),
+            db_type: String::from(db),
+            db_logs: String::from("searching for connections..."),
         }
     }
 

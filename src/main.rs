@@ -49,7 +49,7 @@ fn main() {
         }
     };
 
-    let mut app = app::App::new(&args.cmd);
+    let mut app = app::App::new(&args.cmd, &args.db);
     let formatted = format!("running cmd: {:?}...", args.cmd);
     app.update_logs(&formatted);
     app.update_logs("\n");
@@ -149,6 +149,7 @@ const HELP: &str = "\
 
 fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
     // // a call to npm will spawn another node process:
+    // todo - just list all processes that are node-based
     // let re = Regex::new(r"node").unwrap();
     // this might be dangerous on some OS's where the pid isn't 32 bit
     if let Some(process) = s.process(Pid::from(pid as usize)) {
@@ -164,6 +165,10 @@ fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
     } else {
         return String::from("still fetching...");
     }
+}
+
+fn fetch_db_connections() -> String {
+    String::from("postgres")
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {

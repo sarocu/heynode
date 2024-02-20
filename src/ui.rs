@@ -49,14 +49,25 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         logs.width,
         header.height,
         area.width / 2,
-        area.height - header.height,
+        (area.height - header.height) / 3,
     );
     let info_block = Block::default().title("process").borders(Borders::ALL);
     let app_info = Paragraph::new(app.process.to_owned()).block(info_block);
 
+    // database info:
+    let database = Rect::new(
+        logs.width,
+        header.height + process.height,
+        area.width / 2,
+        area.height - header.height - process.height,
+    );
+    let db_block = Block::default().title("database").borders(Borders::ALL);
+    let db_info = Paragraph::new(app.db_logs.to_owned()).block(db_block);
+
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);
     f.render_widget(app_info, process);
+    f.render_widget(db_info, database);
 
     // scrollbar for logs:
 
