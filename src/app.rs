@@ -14,6 +14,7 @@ pub struct App {
     pub cmd: String,
     /// logs from the child process
     pub logs: String,
+    pub scroll_pos: u16,
     /// database connections
     pub process: String,
 }
@@ -25,21 +26,22 @@ impl App {
             input_mode: InputMode::Normal,
             cmd: String::from(cmd),
             logs: String::new(),
+            scroll_pos: 0,
             process: String::from("fetching info..."),
         }
     }
 
     pub fn update_logs(&mut self, log: &str) {
         self.logs.push_str(log);
-        self.logs.push_str("\n")
+        self.logs.push_str("\n");
+        self.add_scroll_count()
     }
 
     pub fn update_process(&mut self, info: &str) {
         self.process = String::from(info)
     }
 
-    pub fn print_logs(&self) -> std::io::Result<()> {
-        println!("{}", self.logs);
-        Ok(())
+    pub fn add_scroll_count(&mut self) {
+        self.scroll_pos += 1
     }
 }

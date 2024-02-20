@@ -148,9 +148,19 @@ const HELP: &str = "\
     ";
 
 fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
+    // // a call to npm will spawn another node process:
+    // let re = Regex::new(r"node").unwrap();
     // this might be dangerous on some OS's where the pid isn't 32 bit
     if let Some(process) = s.process(Pid::from(pid as usize)) {
-        return format!("{} bytes", process.memory());
+        let mut buf = String::new();
+        buf.push_str(&format!("PID: {}\n", pid.to_string()));
+        buf.push_str(&format!(
+            "Memory consumption: {} MB",
+            process.memory() / 1024
+        ));
+        buf.push_str("\n");
+        buf.push_str(&format!("CPU usage: {}%", process.cpu_usage()));
+        return buf;
     } else {
         return String::from("still fetching...");
     }
@@ -187,11 +197,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Re
             app.update_logs(&logline)
         }
 
+        // to-do: this should debounce:
+        let info = fetch_ps_info(child_id, &sys);
+        app.update_process(&info);
+
         // poll slow for sys calls:
-        if event::poll(std::time::Duration::from_millis(1000)).expect("could not poll") {
-            let info = fetch_ps_info(child_id, &sys);
-            app.update_process(&info);
-        }
+        // if event::poll(std::time::Duration::from_millis(1000)).expect("could not poll") {
+
+        // }
 
         // exit criteria -- todo update to ctrl+c:
         if event::poll(std::time::Duration::from_millis(10)).expect("could not poll") {

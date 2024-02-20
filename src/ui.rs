@@ -31,7 +31,18 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         area.height - header.height,
     );
     let log_block = Block::default().title("logs").borders(Borders::ALL);
-    let log_stream = Paragraph::new(app.logs.to_owned()).block(log_block);
+
+    static LOG_BUFFER: u16 = 10;
+    let vert_scroll = if app.scroll_pos > LOG_BUFFER {
+        app.scroll_pos - 10
+    } else {
+        app.scroll_pos
+    };
+
+    let log_stream = Paragraph::new(app.logs.to_owned())
+        .scroll((vert_scroll, 0))
+        .wrap(Wrap { trim: true })
+        .block(log_block);
 
     // process info:
     let process = Rect::new(
@@ -46,4 +57,21 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);
     f.render_widget(app_info, process);
+
+    // scrollbar for logs:
+
+    let mut scrollbar_state =
+        ScrollbarState::new(app.scroll_pos as usize).position(vert_scroll as usize);
+    f.render_stateful_widget(
+        Scrollbar::default()
+            .orientation(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓")),
+        logs.inner(&Margin {
+            // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+            vertical: 1,
+            horizontal: 0,
+        }),
+        &mut scrollbar_state,
+    );
 }
