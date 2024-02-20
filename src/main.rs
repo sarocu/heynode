@@ -14,6 +14,7 @@ use ratatui::{
     prelude::{CrosstermBackend, Terminal},
 };
 use std::{
+    alloc::System,
     collections::VecDeque,
     io::{self, BufRead},
     process::{ChildStdout, Command},
@@ -22,6 +23,8 @@ use std::{
     io::{BufReader, Error, ErrorKind},
     process::Stdio,
 };
+
+use sysinfo::Pid;
 
 use tui_input::backend::crossterm::EventHandler;
 
@@ -86,7 +89,7 @@ fn parse_args() -> Result<RunnerArgs, pico_args::Error> {
 // 2. Create a new child process using std::process::Command
 // 3. Pipe the output from STDOUT
 // 4. Return the process so that logs can be displayed in the app
-fn run_task(cmd: &str) -> Result<BufReader<ChildStdout>, Error> {
+fn run_task(cmd: &str) -> (Result<BufReader<ChildStdout>, Error>, Result<u32, Error>) {
     // split the cmd up as a string:
     let mut run_cmd = cmd.split(" ").collect::<VecDeque<&str>>();
 
@@ -97,20 +100,21 @@ fn run_task(cmd: &str) -> Result<BufReader<ChildStdout>, Error> {
     };
 
     let cmd_args = run_cmd.into_iter().map(|v| v).collect::<Vec<&str>>();
-    let stdout = Command::new(entry)
+    let child = Command::new(entry)
         .args(cmd_args)
         .stdout(Stdio::piped())
         .spawn()
-        .expect("spawn failed, womp womp")
+        .expect("spawn failed, womp womp");
+    let id = child.id();
+    let stdout = child
         .stdout
         .ok_or_else(|| Error::new(ErrorKind::Other, "couldnt capture stdout"));
     let reader = match stdout {
         Ok(s) => BufReader::new(s),
         Err(_) => panic!("stuff"),
     };
-    // reader.lines().filter_map(|l| l.ok());
 
-    Ok(reader)
+    (Ok(reader), Ok(id))
 }
 
 #[derive(Debug)]
@@ -143,13 +147,30 @@ const HELP: &str = "\
     <INPUT>
     ";
 
+fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
+    // this might be dangerous on some OS's where the pid isn't 32 bit
+    if let Some(process) = s.process(Pid::from(pid as usize)) {
+        return format!("{} bytes", process.memory());
+    } else {
+        return String::from("still fetching...");
+    }
+}
+
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
     // start by running the command in a child process --
     // this returns a BufReader to get output from
-    let mut reader = match run_task(&app.cmd) {
+    let (mut reader_res, child_id_res) = run_task(&app.cmd);
+    let mut reader = match reader_res {
         Ok(r) => r,
         Err(_) => panic!("cant run command"),
     };
+
+    let child_id = match child_id_res {
+        Ok(id) => id,
+        Err(_) => panic!("process did not return a valid pid"),
+    };
+
+    let sys = sysinfo::System::new_all();
 
     loop {
         terminal.draw(|f| ui(f, app))?;
@@ -164,6 +185,12 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Re
 
         if !logline.is_empty() {
             app.update_logs(&logline)
+        }
+
+        // poll slow for sys calls:
+        if event::poll(std::time::Duration::from_millis(1000)).expect("could not poll") {
+            let info = fetch_ps_info(child_id, &sys);
+            app.update_process(&info);
         }
 
         // exit criteria -- todo update to ctrl+c:

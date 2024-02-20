@@ -15,7 +15,7 @@ pub struct App {
     /// logs from the child process
     pub logs: String,
     /// database connections
-    db_activity: String,
+    pub process: String,
 }
 
 impl App {
@@ -25,13 +25,17 @@ impl App {
             input_mode: InputMode::Normal,
             cmd: String::from(cmd),
             logs: String::new(),
-            db_activity: String::new(),
+            process: String::from("fetching info..."),
         }
     }
 
     pub fn update_logs(&mut self, log: &str) {
         self.logs.push_str(log);
         self.logs.push_str("\n")
+    }
+
+    pub fn update_process(&mut self, info: &str) {
+        self.process = String::from(info)
     }
 
     pub fn print_logs(&self) -> std::io::Result<()> {

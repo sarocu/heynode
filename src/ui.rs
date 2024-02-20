@@ -24,10 +24,26 @@ pub fn ui(f: &mut Frame, app: &mut App) {
     let header = Rect::new(area.x, area.y, area.width, area.height / 6);
 
     // log stream:
-    let logs = Rect::new(0, header.height, area.width, area.height - header.height);
-    let content = Block::default().title("logs").borders(Borders::ALL);
-    let log_stream = Paragraph::new(app.logs.to_owned()).block(content);
+    let logs = Rect::new(
+        0,
+        header.height,
+        area.width / 2,
+        area.height - header.height,
+    );
+    let log_block = Block::default().title("logs").borders(Borders::ALL);
+    let log_stream = Paragraph::new(app.logs.to_owned()).block(log_block);
+
+    // process info:
+    let process = Rect::new(
+        logs.width,
+        header.height,
+        area.width / 2,
+        area.height - header.height,
+    );
+    let info_block = Block::default().title("process").borders(Borders::ALL);
+    let app_info = Paragraph::new(app.process.to_owned()).block(info_block);
 
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);
+    f.render_widget(app_info, process);
 }
