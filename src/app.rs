@@ -25,6 +25,9 @@ pub struct App {
     /// database info:
     pub db_type: String,
     pub db_logs: String,
+    pub elu_logs: String,
+    pub elu_scroll: u16,
+    // events:
     pub task: Option<JoinHandle<()>>,
     pub should_exit: bool,
     pub rx: mpsc::UnboundedReceiver<Event>,
@@ -45,6 +48,8 @@ impl App {
             db_logs: String::from("searching for connections..."),
             task: None,
             should_exit: false,
+            elu_logs: String::from("waiting for boot"),
+            elu_scroll: 0,
             tx,
             rx,
         }
@@ -109,6 +114,10 @@ impl App {
 
     pub fn update_db_logs(&mut self, log: &str) {
         self.db_logs = String::from(log)
+    }
+
+    pub fn update_elu(&mut self, log: &str) {
+        self.elu_logs = String::from(log)
     }
 
     pub async fn next(&mut self) -> Option<Event> {

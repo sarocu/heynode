@@ -78,8 +78,15 @@ pub fn paint(f: &mut Frame, app: &mut App) {
         area.width / 2,
         (area.height - header.height - process.height) / 2,
     );
+    // todo - make this into a table
+    // https://docs.rs/ratatui/latest/ratatui/widgets/struct.Table.html
+    // also clip the query, it can be large...
+    // explainer on ELU: https://nodesource.com/blog/event-loop-utilization-nodejs/
     let db_block = Block::default().title("database").borders(Borders::ALL);
-    let db_info = Paragraph::new(app.db_logs.to_owned()).block(db_block);
+    let db_info = Paragraph::new(app.db_logs.to_owned())
+        .scroll((0, 0))
+        .wrap(Wrap { trim: true })
+        .block(db_block);
 
     // async hooks:
     let node_async = Rect::new(
@@ -89,7 +96,7 @@ pub fn paint(f: &mut Frame, app: &mut App) {
         (area.height - header.height - process.height) / 2,
     );
     let node_block = Block::default().title("async hooks").borders(Borders::ALL);
-    let node_info = Paragraph::new("waiting on async hooks...").block(node_block);
+    let node_info = Paragraph::new(app.elu_logs.to_owned()).block(node_block);
 
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);

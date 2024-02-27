@@ -1,6 +1,7 @@
 mod app;
 mod db;
 mod ui;
+use rev_buf_reader::RevBufReader;
 // mod network; // not ready
 //
 
@@ -18,7 +19,8 @@ use ratatui::{
 use std::{
     alloc::System,
     collections::VecDeque,
-    io::{self, BufRead},
+    fs::{read, File},
+    io::{self, BufRead, Write},
     process::{ChildStdout, Command},
     thread::sleep,
     time::Duration,
@@ -108,6 +110,14 @@ fn parse_args() -> Result<RunnerArgs, pico_args::Error> {
     Ok(args)
 }
 
+fn read_from_tail(file: &File) -> Vec<String> {
+    let buf = RevBufReader::new(file);
+    buf.lines()
+        .take(1)
+        .map(|l| l.expect("Could not parse line"))
+        .collect()
+}
+
 // Run a child process and collect logs from STDOUT
 // 1. Get the command from the CLI args
 // 2. Create a new child process using std::process::Command
@@ -120,12 +130,45 @@ fn run_task(cmd: &str) -> (Result<BufReader<ChildStdout>, Error>, Result<u32, Er
     // script entry, e.g. "npm"
     let entry = match run_cmd.pop_front() {
         Some(c) => c,
-        None => "ls",
+        None => "--version",
     };
 
-    let cmd_args = run_cmd.into_iter().map(|v| v).collect::<Vec<&str>>();
-    let child = Command::new(entry)
-        .args(cmd_args)
+    // create a JS file that runs the app as a worker, and dumps ELU to a file:
+    let js = format!(
+        r#"
+        const {{ Worker }} = require('worker_threads');
+        const fs = require('node:fs');
+        const worker = new Worker('{}');
+
+        setInterval(() => {{
+          // Check the worker's usage directly and immediately. The call is thread-safe
+          // so it doesn't need to wait for the worker's event loop to become free.
+          const elu = worker.performance.eventLoopUtilization();
+          const log = `idle: ${{elu.idle}} | util: ${{elu.utilization}} | active: ${{elu.active}}\n`
+          fs.appendFile('elu.log', log, err => {{
+              if (err) {{
+                console.error(err);
+              }} else {{
+              // done!
+              }}
+           }});
+        }}, 250);
+        "#,
+        entry
+    );
+
+    let mut worker_file = File::create("worker.js").expect("could not create worker file");
+    worker_file
+        .write_all(&js.as_bytes())
+        .expect("could not write to file");
+
+    let child = Command::new("node")
+        .args([
+            "--cpu-prof",
+            // "--trace-sync-io",
+            "--redirect-warnings=./warn.log",
+            "worker.js",
+        ])
         .stdout(Stdio::piped())
         .spawn()
         .expect("spawn failed, womp womp");
@@ -195,12 +238,6 @@ async fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
     }
 }
 
-fn fetch_db_connections() -> String {
-    let buf = String::new();
-
-    String::from("postgres")
-}
-
 async fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     app: &mut app::App,
@@ -227,6 +264,13 @@ async fn run_app<B: Backend>(
     sys.refresh_all();
     app.update_process(&info);
 
+    let log_file = File::open("elu.log").expect("could not open ELU log");
+    let elu = read_from_tail(&log_file);
+    let mut log_line = String::new();
+    elu.into_iter().for_each(|l| log_line.push_str(&l));
+    app.update_elu(&log_line);
+
+    // start async event loop:
     app.start();
 
     loop {
@@ -243,11 +287,20 @@ async fn run_app<B: Backend>(
                     match db.get_locks().await {
                         Ok(result) => {
                             let mut rows = String::new();
+                            rows.push_str("Wait Event     |     State    |    Query\n");
                             result.into_iter().for_each(|r| {
-                                rows.push_str(r.get(0));
+                                let wait_event: String = r.get(0);
+                                let state: String = r.get(1);
+                                let query: String = r.get(2);
+                                rows.push_str(&format!("{} | {} | {}", wait_event, state, query));
                                 rows.push_str("\n")
                             });
                             app.update_db_logs(&rows);
+
+                            let elu = read_from_tail(&log_file);
+                            let mut log_line = String::new();
+                            elu.into_iter().for_each(|l| log_line.push_str(&l));
+                            app.update_elu(&log_line);
                         }
                         Err(e) => {
                             app.update_db_logs(&e.to_string());
