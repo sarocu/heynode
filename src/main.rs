@@ -1,14 +1,16 @@
 mod app;
+mod db;
 mod ui;
-
-use crate::ui::ui;
+// mod network; // not ready
+//
 
 use app::InputMode;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CrosstermEvent, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use db::DbClient;
 use ratatui::{
     backend::Backend,
     prelude::{CrosstermBackend, Terminal},
@@ -29,7 +31,8 @@ use sysinfo::Pid;
 use tui_input::backend::crossterm::EventHandler;
 
 // this will take over i/o from the terminal:
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut stdout = io::stdout();
     enable_raw_mode().expect("could not use terminal");
 
@@ -54,7 +57,26 @@ fn main() {
     app.update_logs(&formatted);
     app.update_logs("\n");
     app.update_logs("stdout: ");
-    let _res = run_app(&mut terminal, &mut app);
+
+    // connect to the db:
+    let db = db::DbClient::new(&args.db).await;
+
+    match db.get_locks().await {
+        Ok(result) => {
+            let mut rows = String::new();
+            result.into_iter().for_each(|r| {
+                // let thing = r.get(0);
+                rows.push_str(r.get(0));
+                rows.push_str("\n")
+            });
+            app.update_db_logs(&rows);
+        }
+        Err(e) => {
+            app.update_db_logs(&e.to_string());
+        }
+    };
+
+    let _res = run_app(&mut terminal, &mut app, &db).await;
 
     disable_raw_mode().expect("raw mode not allowed");
     execute!(
@@ -140,8 +162,8 @@ const HELP: &str = "\
     -h, --help            Prints help information
 
     OPTIONS:
-    --cmd      PATH           the command to spawn
-    --db       PATH           the type of database to inspect traffic on
+    --cmd      STRING           the command to spawn
+    --db       STRING           the database connection string
 
     ARGS:
     <INPUT>
@@ -168,13 +190,19 @@ fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
 }
 
 fn fetch_db_connections() -> String {
+    let buf = String::new();
+
     String::from("postgres")
 }
 
-fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Result<bool> {
+async fn run_app<B: Backend>(
+    terminal: &mut Terminal<B>,
+    app: &mut app::App,
+    db: &DbClient,
+) -> io::Result<bool> {
     // start by running the command in a child process --
     // this returns a BufReader to get output from
-    let (mut reader_res, child_id_res) = run_task(&app.cmd);
+    let (reader_res, child_id_res) = run_task(&app.cmd);
     let mut reader = match reader_res {
         Ok(r) => r,
         Err(_) => panic!("cant run command"),
@@ -185,10 +213,46 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Re
         Err(_) => panic!("process did not return a valid pid"),
     };
 
+    // Initial monitoring info:
     let sys = sysinfo::System::new_all();
 
+    // to-do: this should debounce:
+    let info = fetch_ps_info(child_id, &sys);
+    app.update_process(&info);
+
+    app.start();
+
     loop {
-        terminal.draw(|f| ui(f, app))?;
+        terminal.draw(|f| ui::paint(f, app))?;
+
+        if let Some(evt) = app.next().await {
+            match evt {
+                ui::Event::Key(k) => {
+                    if k.code == KeyCode::Char('q') {
+                        app.should_exit = true;
+                    }
+                }
+                ui::Event::Tick => {
+                    match db.get_locks().await {
+                        Ok(result) => {
+                            let mut rows = String::new();
+                            result.into_iter().for_each(|r| {
+                                rows.push_str(r.get(0));
+                                rows.push_str("\n")
+                            });
+                            app.update_db_logs(&rows);
+                        }
+                        Err(e) => {
+                            app.update_db_logs(&e.to_string());
+                        }
+                    };
+
+                    // to-do: this should debounce:
+                    let info = fetch_ps_info(child_id, &sys);
+                    app.update_process(&info);
+                }
+            }
+        }
 
         let mut buf = String::new();
         reader
@@ -197,45 +261,42 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut app::App) -> io::Re
             .expect("couldnt read from stdout");
 
         let logline = format!("{}", buf);
+        app.update_logs(&logline);
 
-        if !logline.is_empty() {
-            app.update_logs(&logline)
-        }
-
-        // to-do: this should debounce:
-        let info = fetch_ps_info(child_id, &sys);
-        app.update_process(&info);
-
-        // poll slow for sys calls:
-        // if event::poll(std::time::Duration::from_millis(1000)).expect("could not poll") {
-
+        // if !logline.is_empty() {
+        //     app.update_logs(&logline)
         // }
+        //
+
+        if app.should_exit {
+            break;
+        }
 
         // exit criteria -- todo update to ctrl+c:
-        if event::poll(std::time::Duration::from_millis(10)).expect("could not poll") {
-            // dispatch events:
-            if let event::Event::Key(key) = event::read().expect("could not read event") {
-                match app.input_mode {
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('q') => {
-                            break;
-                        }
-                        KeyCode::Char('i') => {
-                            app.input_mode = InputMode::Editing;
-                        }
-                        _ => {}
-                    },
-                    InputMode::Editing => match key.code {
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                        }
-                        _ => {
-                            app.input.handle_event(&Event::Key(key));
-                        }
-                    },
-                }
-            }
-        }
+        // if event::poll(std::time::Duration::from_millis(10)).expect("could not poll") {
+        //     // dispatch events:
+        //     if let event::Event::Key(key) = event::read().expect("could not read event") {
+        //         match app.input_mode {
+        //             InputMode::Normal => match key.code {
+        //                 KeyCode::Char('q') => {
+        //                     break;
+        //                 }
+        //                 KeyCode::Char('i') => {
+        //                     app.input_mode = InputMode::Editing;
+        //                 }
+        //                 _ => {}
+        //             },
+        //             InputMode::Editing => match key.code {
+        //                 KeyCode::Esc => {
+        //                     app.input_mode = InputMode::Normal;
+        //                 }
+        //                 _ => {
+        //                     app.input.handle_event(&Event::Key(key));
+        //                 }
+        //             },
+        //         }
+        //     }
+        // }
     }
     Ok(true)
 }

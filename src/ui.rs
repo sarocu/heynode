@@ -1,15 +1,32 @@
-use ratatui::{prelude::*, widgets::*};
-
 use crate::app::App;
+use crossterm::event::{Event as CrosstermEvent, KeyEvent, KeyEventKind};
+use ratatui::{prelude::*, widgets::*};
+use serde::{Deserialize, Serialize};
+use tokio::fs::read;
 
-pub fn ui(f: &mut Frame, app: &mut App) {
+#[derive(Clone, Debug)]
+pub enum Event {
+    // Init,
+    // Quit,
+    // Error,
+    // Closed,
+    Tick,
+    // Render,
+    // FocusGained,
+    // FocusLost,
+    // Paste(String),
+    Key(KeyEvent),
+    // Mouse(MouseEvent),
+    // Resize(u16, u16),
+}
+
+pub fn paint(f: &mut Frame, app: &mut App) {
     let logo = r"                               ___                            _
       /\  /\___ _   _  ___    / __\___  _ __ ___  _ __  _   _| |_ ___ _ __
      / /_/ / _ \ | | |/ _ \  / /  / _ \| '_ ` _ \| '_ \| | | | __/ _ \ '__|
     / __  /  __/ |_| | (_) |/ /__| (_) | | | | | | |_) | |_| | ||  __/ |
     \/ /_/ \___|\__, |\___(_)____/\___/|_| |_| |_| .__/ \__,_|\__\___|_|
                 |___/                            |_|                       ";
-
     let _chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -59,15 +76,26 @@ pub fn ui(f: &mut Frame, app: &mut App) {
         logs.width,
         header.height + process.height,
         area.width / 2,
-        area.height - header.height - process.height,
+        (area.height - header.height - process.height) / 2,
     );
     let db_block = Block::default().title("database").borders(Borders::ALL);
     let db_info = Paragraph::new(app.db_logs.to_owned()).block(db_block);
+
+    // async hooks:
+    let node_async = Rect::new(
+        logs.width,
+        header.height + process.height + database.height,
+        area.width / 2,
+        (area.height - header.height - process.height) / 2,
+    );
+    let node_block = Block::default().title("async hooks").borders(Borders::ALL);
+    let node_info = Paragraph::new("waiting on async hooks...").block(node_block);
 
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);
     f.render_widget(app_info, process);
     f.render_widget(db_info, database);
+    f.render_widget(node_info, node_async);
 
     // scrollbar for logs:
 
