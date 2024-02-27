@@ -20,6 +20,8 @@ use std::{
     collections::VecDeque,
     io::{self, BufRead},
     process::{ChildStdout, Command},
+    thread::sleep,
+    time::Duration,
 };
 use std::{
     io::{BufReader, Error, ErrorKind},
@@ -169,20 +171,24 @@ const HELP: &str = "\
     <INPUT>
     ";
 
-fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
+// todo- convert to async and call cpu_usage ~100-500ms apart!
+async fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
     // // a call to npm will spawn another node process:
     // todo - just list all processes that are node-based
     // let re = Regex::new(r"node").unwrap();
     // this might be dangerous on some OS's where the pid isn't 32 bit
     if let Some(process) = s.process(Pid::from(pid as usize)) {
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+
         let mut buf = String::new();
         buf.push_str(&format!("PID: {}\n", pid.to_string()));
         buf.push_str(&format!(
             "Memory consumption: {} MB",
-            process.memory() / 1024
+            process.memory() / (1024 * 1024) // bytes -> kb -> mb)
         ));
         buf.push_str("\n");
-        buf.push_str(&format!("CPU usage: {}%", process.cpu_usage()));
+
+        buf.push_str(&format!("CPUs: {}", f32::from(process.cpu_usage()) / 100.0));
         return buf;
     } else {
         return String::from("still fetching...");
@@ -214,10 +220,11 @@ async fn run_app<B: Backend>(
     };
 
     // Initial monitoring info:
-    let sys = sysinfo::System::new_all();
+    let mut sys = sysinfo::System::new_all();
 
     // to-do: this should debounce:
-    let info = fetch_ps_info(child_id, &sys);
+    let info = fetch_ps_info(child_id, &sys).await;
+    sys.refresh_all();
     app.update_process(&info);
 
     app.start();
@@ -248,7 +255,8 @@ async fn run_app<B: Backend>(
                     };
 
                     // to-do: this should debounce:
-                    let info = fetch_ps_info(child_id, &sys);
+                    sys.refresh_all();
+                    let info = fetch_ps_info(child_id, &sys).await;
                     app.update_process(&info);
                 }
             }
@@ -269,6 +277,9 @@ async fn run_app<B: Backend>(
         //
 
         if app.should_exit {
+            if let Some(process) = sys.process(Pid::from(child_id as usize)) {
+                process.kill();
+            }
             break;
         }
 
