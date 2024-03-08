@@ -65,20 +65,19 @@ async fn main() {
     // connect to the db:
     let db = db::DbClient::new(&args.db).await;
 
-    match db.get_locks().await {
-        Ok(result) => {
-            let mut rows = String::new();
-            result.into_iter().for_each(|r| {
-                // let thing = r.get(0);
-                rows.push_str(r.get(0));
-                rows.push_str("\n")
-            });
-            app.update_db_logs(&rows);
-        }
-        Err(e) => {
-            app.update_db_logs(&e.to_string());
-        }
-    };
+    // match db.get_locks().await {
+    //     Ok(result) => {
+    //         let mut res = Vec::new();
+    //         result.into_iter().for_each(|r| {
+    //             // let thing = r.get(0);
+    //             res.push([r.get(0)].to_vec());
+    //         });
+    //         app.update_db_logs(&res);
+    //     }
+    //     Err(e) => {
+    //         app.update_db_logs(&e.to_string());
+    //     }
+    // };
 
     let _res = run_app(&mut terminal, &mut app, &db).await;
 
@@ -144,7 +143,7 @@ fn run_task(cmd: &str) -> (Result<BufReader<ChildStdout>, Error>, Result<u32, Er
           // Check the worker's usage directly and immediately. The call is thread-safe
           // so it doesn't need to wait for the worker's event loop to become free.
           const elu = worker.performance.eventLoopUtilization();
-          const log = `idle: ${{elu.idle}} | util: ${{elu.utilization}} | active: ${{elu.active}}\n`
+          const log = `${{elu.utilization}}\n`
           fs.appendFile('elu.log', log, err => {{
               if (err) {{
                 console.error(err);
@@ -215,7 +214,7 @@ const HELP: &str = "\
     ";
 
 // todo- convert to async and call cpu_usage ~100-500ms apart!
-async fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
+async fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> (String, f64) {
     // // a call to npm will spawn another node process:
     // todo - just list all processes that are node-based
     // let re = Regex::new(r"node").unwrap();
@@ -232,9 +231,9 @@ async fn fetch_ps_info(pid: u32, s: &sysinfo::System) -> String {
         buf.push_str("\n");
 
         buf.push_str(&format!("CPUs: {}", f32::from(process.cpu_usage()) / 100.0));
-        return buf;
+        return (buf, f64::from(process.cpu_usage() / 100.0));
     } else {
-        return String::from("still fetching...");
+        return (String::from("still fetching..."), f64::from(0.0));
     }
 }
 
@@ -260,16 +259,19 @@ async fn run_app<B: Backend>(
     let mut sys = sysinfo::System::new_all();
 
     // to-do: this should debounce:
-    let info = fetch_ps_info(child_id, &sys).await;
+    let (info, cpu) = fetch_ps_info(child_id, &sys).await;
     sys.refresh_all();
     app.update_process(&info);
 
     let log_file = File::open("elu.log").expect("could not open ELU log");
     let elu = read_from_tail(&log_file);
-    let mut log_line = String::new();
-    elu.into_iter().for_each(|l| log_line.push_str(&l));
-    app.update_elu(&log_line);
-
+    elu.into_iter().for_each(|l| {
+        let elu = match l.parse::<f64>() {
+            Ok(elu) => elu,
+            Err(_) => 0.0,
+        };
+        app.update_elu(elu, cpu)
+    });
     // start async event loop:
     app.start();
 
@@ -286,31 +288,41 @@ async fn run_app<B: Backend>(
                 ui::Event::Tick => {
                     match db.get_locks().await {
                         Ok(result) => {
-                            let mut rows = String::new();
-                            rows.push_str("Wait Event     |     State    |    Query\n");
+                            let mut res = Vec::new();
                             result.into_iter().for_each(|r| {
                                 let wait_event: String = r.get(0);
                                 let state: String = r.get(1);
                                 let query: String = r.get(2);
-                                rows.push_str(&format!("{} | {} | {}", wait_event, state, query));
-                                rows.push_str("\n")
+                                res.push([wait_event, state, query].to_vec());
                             });
-                            app.update_db_logs(&rows);
-
-                            let elu = read_from_tail(&log_file);
-                            let mut log_line = String::new();
-                            elu.into_iter().for_each(|l| log_line.push_str(&l));
-                            app.update_elu(&log_line);
+                            app.update_db_logs(res);
                         }
                         Err(e) => {
-                            app.update_db_logs(&e.to_string());
+                            app.update_db_logs(
+                                [[
+                                    "error".to_string(),
+                                    "error".to_string(),
+                                    "error".to_string(),
+                                ]
+                                .to_vec()]
+                                .to_vec(),
+                            );
                         }
                     };
 
                     // to-do: this should debounce:
                     sys.refresh_all();
-                    let info = fetch_ps_info(child_id, &sys).await;
+                    let (info, cpu) = fetch_ps_info(child_id, &sys).await;
                     app.update_process(&info);
+
+                    let elu = read_from_tail(&log_file);
+                    elu.into_iter().for_each(|l| {
+                        let elu = match l.parse::<f64>() {
+                            Ok(elu) => elu,
+                            Err(_) => 0.5,
+                        };
+                        app.update_elu(elu, cpu)
+                    });
                 }
             }
         }

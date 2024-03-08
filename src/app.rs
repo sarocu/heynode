@@ -1,9 +1,12 @@
 use crossterm::event::{Event as CrosstermEvent, KeyEvent, KeyEventKind};
+use ratatui::widgets::{Row, TableState};
 use tokio::{sync::mpsc, task::JoinHandle};
 use tui_input::Input;
 
-use crate::ui::Event;
+use crate::ui::{format_rows, Event};
 use futures::{FutureExt, StreamExt};
+
+pub static SCROLL_RATE: f64 = 1.0;
 
 pub enum InputMode {
     Normal,
@@ -22,11 +25,15 @@ pub struct App {
     pub scroll_pos: u16,
     /// process info:
     pub process: String,
+    pub cpu: Vec<(f64, f64)>,
     /// database info:
     pub db_type: String,
-    pub db_logs: String,
-    pub elu_logs: String,
-    pub elu_scroll: u16,
+    pub db_logs: Vec<Row<'static>>,
+    pub db_state: TableState,
+    // elu info:
+    pub elu_logs: Vec<(f64, f64)>,
+    pub elu_pos: f64,
+    pub elu_scroll: (f64, f64),
     // events:
     pub task: Option<JoinHandle<()>>,
     pub should_exit: bool,
@@ -45,11 +52,17 @@ impl App {
             scroll_pos: 0,
             process: String::from("fetching info..."),
             db_type: String::from(db),
-            db_logs: String::from("searching for connections..."),
+            db_logs: [format_rows(
+                ["...".to_string(), "...".to_string(), "...".to_string()].to_vec(),
+            )]
+            .to_vec(),
+            db_state: TableState::default(),
             task: None,
             should_exit: false,
-            elu_logs: String::from("waiting for boot"),
-            elu_scroll: 0,
+            elu_logs: [(0.0, 0.0)].to_vec(),
+            elu_pos: 0.0,
+            elu_scroll: (0.0, 100.0),
+            cpu: [(0.0, 0.0)].to_vec(),
             tx,
             rx,
         }
@@ -83,15 +96,19 @@ impl App {
                                             _event_tx.send(Event::Key(key)).unwrap();
                                         }
                                     },
-                                    _ => {
-                                        _event_tx.send(Event::Tick);
-                                        ()
-                                    }
+                                    _ => ()
                                 }
                             },
+
                             None => (),
                             Some(Error) => ()
                         }
+                    },
+                    _ = tick_delay => {
+                        _event_tx.send(Event::Tick).unwrap();
+                    },
+                    _ = render_delay => {
+                        _event_tx.send(Event::Tick).unwrap();
                     }
                 }
             }
@@ -112,12 +129,27 @@ impl App {
         self.scroll_pos += 1
     }
 
-    pub fn update_db_logs(&mut self, log: &str) {
-        self.db_logs = String::from(log)
+    pub fn update_db_logs(&mut self, logs: Vec<Vec<String>>) {
+        let mut rows: Vec<Row> = Vec::new();
+        logs.into_iter().for_each(|l| {
+            let row = format_rows(l);
+            rows.push(row)
+        });
+        self.db_logs = rows
     }
 
-    pub fn update_elu(&mut self, log: &str) {
-        self.elu_logs = String::from(log)
+    pub fn update_elu(&mut self, elu: f64, cpu: f64) {
+        // todo - trim the vec after it's too long
+        self.elu_pos += SCROLL_RATE;
+        self.elu_logs.push((self.elu_pos.clone(), elu));
+        self.cpu.push((self.elu_pos.clone(), cpu));
+
+        // scroll to the right:
+        // todo - set the bounds based on the window
+        if self.elu_pos > 100.0 {
+            let (start, end) = self.elu_scroll.clone();
+            self.elu_scroll = (start + SCROLL_RATE, end + SCROLL_RATE)
+        }
     }
 
     pub async fn next(&mut self) -> Option<Event> {

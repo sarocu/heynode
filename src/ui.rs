@@ -62,6 +62,8 @@ pub fn paint(f: &mut Frame, app: &mut App) {
         .block(log_block);
 
     // process info:
+    // todo - turn this into a chart
+    // https://docs.rs/ratatui/latest/ratatui/widgets/struct.Chart.html
     let process = Rect::new(
         logs.width,
         header.height,
@@ -83,25 +85,78 @@ pub fn paint(f: &mut Frame, app: &mut App) {
     // also clip the query, it can be large...
     // explainer on ELU: https://nodesource.com/blog/event-loop-utilization-nodejs/
     let db_block = Block::default().title("database").borders(Borders::ALL);
-    let db_info = Paragraph::new(app.db_logs.to_owned())
-        .scroll((0, 0))
-        .wrap(Wrap { trim: true })
+    // let db_info = Paragraph::new(app.db_logs.to_owned())
+    //     .scroll((0, 0))
+    //     .wrap(Wrap { trim: true })
+    //     .block(db_block);
+    let widths = [
+        Constraint::Length(5),
+        Constraint::Length(10),
+        Constraint::Length(45),
+    ];
+    let db_info = Table::new(app.db_logs.clone())
+        .widths(&widths)
+        // .style(Style::new().style().on_blue().underlined())
+        .header(
+            format_rows(
+                [
+                    "wait event".to_string(),
+                    "state".to_string(),
+                    "query".to_string(),
+                ]
+                .to_vec(),
+            )
+            .underlined(),
+        )
         .block(db_block);
 
     // async hooks:
+    // todo - turn this into a chart
+    // https://docs.rs/ratatui/latest/ratatui/widgets/struct.Chart.html
     let node_async = Rect::new(
         logs.width,
         header.height + process.height + database.height,
         area.width / 2,
         (area.height - header.height - process.height) / 2,
     );
-    let node_block = Block::default().title("async hooks").borders(Borders::ALL);
-    let node_info = Paragraph::new(app.elu_logs.to_owned()).block(node_block);
+    let node_block = Block::default().title("event loop").borders(Borders::ALL);
+
+    let elu_data = Dataset::default()
+        .name("event loop utilization")
+        .marker(symbols::Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().yellow())
+        .data(&app.elu_logs);
+
+    let cpu_data = Dataset::default()
+        .name("event loop utilization")
+        .marker(symbols::Marker::Braille)
+        .graph_type(GraphType::Line)
+        .style(Style::default().red())
+        .data(&app.cpu);
+
+    let y_axis = Axis::default()
+        .title("elu".yellow())
+        .style(Style::default().white())
+        .bounds([0.0, 1.2])
+        .labels(vec!["0.0".into(), "0.5".into(), "1.0".into()]);
+
+    let (start, end) = app.elu_scroll.clone();
+    let x_axis = Axis::default()
+        .title("time")
+        .style(Style::default().white())
+        .bounds([start, end]);
+    // .labels(vec!["0.0".into(), "50.0".into(), "100.0".into()]);
+
+    let node_info = Chart::new([elu_data, cpu_data].to_vec())
+        .block(node_block)
+        .y_axis(y_axis)
+        .x_axis(x_axis);
 
     f.render_widget(Paragraph::new(logo).white().on_dark_gray(), header);
     f.render_widget(log_stream, logs);
     f.render_widget(app_info, process);
-    f.render_widget(db_info, database);
+    f.render_stateful_widget(db_info, database, &mut app.db_state);
     f.render_widget(node_info, node_async);
 
     // scrollbar for logs:
@@ -120,4 +175,9 @@ pub fn paint(f: &mut Frame, app: &mut App) {
         }),
         &mut scrollbar_state,
     );
+}
+
+pub fn format_rows(text_data: Vec<String>) -> Row<'static> {
+    // accumulate a Vec of strings
+    Row::new(text_data)
 }
